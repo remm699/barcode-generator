@@ -2,6 +2,7 @@
 """
 Barcode Generator Tool
 Generates 12-digit barcodes (EAN/UPC style) with a simple GUI interface.
+Now includes barcode reading functionality.
 """
 
 import tkinter as tk
@@ -11,12 +12,13 @@ from barcode.writer import ImageWriter
 from PIL import Image, ImageTk
 import io
 import os
+from pyzbar.pyzbar import decode
 
 class BarcodeGenerator:
     def __init__(self, root):
         self.root = root
-        self.root.title("Générateur de Codes Barres 12 chiffres")
-        self.root.geometry("500x400")
+        self.root.title("Générateur et Lecteur de Codes Barres")
+        self.root.geometry("600x500")
         self.root.resizable(True, True)
         
         # Variables
@@ -36,7 +38,7 @@ class BarcodeGenerator:
         main_frame.columnconfigure(1, weight=1)
         
         # Title
-        title_label = ttk.Label(main_frame, text="Générateur de Codes Barres EAN-13", 
+        title_label = ttk.Label(main_frame, text="Générateur et Lecteur de Codes Barres EAN-13", 
                                font=("Arial", 16, "bold"))
         title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
         
@@ -56,26 +58,31 @@ class BarcodeGenerator:
                                       command=self.generate_barcode)
         self.generate_btn.grid(row=1, column=2, sticky=tk.W, pady=5, padx=(10, 0))
         
+        # Read barcode button
+        self.read_btn = ttk.Button(main_frame, text="Lire code barre depuis image", 
+                                  command=self.read_barcode_from_image)
+        self.read_btn.grid(row=2, column=0, columnspan=3, pady=5)
+        
         # Status label
         self.status_var = tk.StringVar()
-        self.status_var.set("Prêt à générer un code barre")
+        self.status_var.set("Prêt à générer ou lire un code barre")
         status_label = ttk.Label(main_frame, textvariable=self.status_var, 
                                 foreground="blue")
-        status_label.grid(row=2, column=0, columnspan=3, pady=(10, 5))
+        status_label.grid(row=3, column=0, columnspan=3, pady=(10, 5))
         
         # Image display frame
         image_frame = ttk.LabelFrame(main_frame, text="Aperçu du code barre", padding="10")
-        image_frame.grid(row=3, column=0, columnspan=3, pady=10, sticky=(tk.W, tk.E, tk.N, tk.S))
+        image_frame.grid(row=4, column=0, columnspan=3, pady=10, sticky=(tk.W, tk.E, tk.N, tk.S))
         image_frame.columnconfigure(0, weight=1)
         image_frame.rowconfigure(0, weight=1)
         
         # Canvas for barcode display
-        self.canvas = tk.Canvas(image_frame, width=300, height=100, bg="white", relief="sunken", bd=2)
+        self.canvas = tk.Canvas(image_frame, width=400, height=150, bg="white", relief="sunken", bd=2)
         self.canvas.grid(row=0, column=0, pady=10)
         
         # Buttons frame
         buttons_frame = ttk.Frame(main_frame)
-        buttons_frame.grid(row=4, column=0, columnspan=3, pady=10)
+        buttons_frame.grid(row=5, column=0, columnspan=3, pady=10)
         
         # Save button
         self.save_btn = ttk.Button(buttons_frame, text="Enregistrer l'image", 
@@ -87,7 +94,7 @@ class BarcodeGenerator:
         clear_btn.grid(row=0, column=1, padx=5)
         
         # Configure grid weights for resizing
-        main_frame.rowconfigure(3, weight=1)
+        main_frame.rowconfigure(4, weight=1)
         
     def validate_input(self):
         """Validate that input is exactly 12 digits"""
@@ -137,7 +144,7 @@ class BarcodeGenerator:
             pil_image = Image.open(buffer)
             
             # Resize for display (maintain aspect ratio)
-            display_width = 300
+            display_width = 400
             w_percent = (display_width / float(pil_image.size[0]))
             h_size = int((float(pil_image.size[1]) * float(w_percent)))
             display_image = pil_image.resize((display_width, h_size), Image.Resampling.LANCZOS)
@@ -159,6 +166,82 @@ class BarcodeGenerator:
             self.status_var.set("Erreur lors de la génération")
         finally:
             self.generate_btn.config(state="normal")
+    
+    def read_barcode_from_image(self):
+        """Read barcode from an image file"""
+        try:
+            file_path = filedialog.askopenfilename(
+                filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp *.tiff"), ("All files", "*.*")],
+                title="Sélectionner une image contenant un code barre"
+            )
+            
+            if not file_path:
+                return
+                
+            # Update status
+            self.status_var.set("Lecture du code barre en cours...")
+            self.root.update()
+            
+            # Open and process the image
+            pil_image = Image.open(file_path)
+            
+            # Display the image on canvas (resized for display)
+            display_width = 400
+            w_percent = (display_width / float(pil_image.size[0]))
+            h_size = int((float(pil_image.size[1]) * float(w_percent)))
+            display_image = pil_image.resize((display_width, h_size), Image.Resampling.LANCZOS)
+            
+            # Convert to PhotoImage for tkinter
+            self.barcode_photo = ImageTk.PhotoImage(display_image)
+            
+            # Display on canvas
+            self.canvas.delete("all")
+            self.canvas.create_image(display_width//2, h_size//2, image=self.barcode_photo)
+            
+            # Decode barcode
+            decoded_objects = decode(pil_image)
+            
+            if not decoded_objects:
+                messagebox.showwarning("Attention", "Aucun code barre détecté dans l'image")
+                self.status_var.set("Aucun code barre détecté")
+                return
+                
+            # Process the first detected barcode
+            obj = decoded_objects[0]
+            barcode_data = obj.data.decode('utf-8')
+            barcode_type = obj.type
+            
+            # For EAN-13, extract first 12 digits
+            if barcode_type == 'EAN13' and len(barcode_data) == 13:
+                # Verify checksum (optional but good practice)
+                digits_12 = barcode_data[:12]
+                # Update the input field with the 12 digits
+                self.digits_var.set(digits_12)
+                self.barcode_image = pil_image  # Keep original for saving
+                self.status_var.set(f"Code barre lu! (12 chiffres: {digits_12})")
+                self.save_btn.config(state="normal")
+                
+                # Show detailed info
+                messagebox.showinfo("Succès", 
+                                  f"Code barre détecté avec succès!\n\n"
+                                  f"Type: {barcode_type}\n"
+                                  f"Code complet (13 chiffres): {barcode_data}\n"
+                                  f"Les 12 chiffres saisis: {digits_12}\n"
+                                  f"Chiffre de contrôle: {barcode_data[-1]}")
+            else:
+                # For other barcode types or unexpected format
+                self.digits_var.set("")  # Clear input
+                self.barcode_image = pil_image
+                self.status_var.set(f"Code barre détecté: {barcode_data}")
+                messagebox.showinfo("Info", 
+                                  f"Code barre détecté mais pas au format EAN-13 standard:\n\n"
+                                  f"Type: {barcode_type}\n"
+                                  f"Données: {barcode_data}\n\n"
+                                  f"Note: Cette application est optimisée pour les codes EAN-13.")
+                
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Erreur lors de la lecture du code barre:\n{str(e)}")
+            self.status_var.set("Erreur lors de la lecture")
     
     def save_barcode(self):
         """Save the barcode image to file"""
@@ -187,7 +270,7 @@ class BarcodeGenerator:
         self.canvas.delete("all")
         self.barcode_image = None
         self.barcode_photo = None
-        self.status_var.set("Prêt à générer un code barre")
+        self.status_var.set("Prêt à générer ou lire un code barre")
         self.save_btn.config(state="disabled")
         self.digits_entry.focus()
 
