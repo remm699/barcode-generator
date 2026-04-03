@@ -13,7 +13,7 @@ A Python GUI application for generating EAN-13 barcodes from 12-digit input and 
 ## Installation
 ```bash
 # Clone or download this repository
-git clone <repository-url>
+git clone https://github.com/remm699/barcode-generator
 cd barcode-generator
 
 # Install dependencies
